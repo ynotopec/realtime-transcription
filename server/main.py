@@ -76,22 +76,18 @@ async def ws_stream(ws: WebSocket):
                     if len(frame) < frame_len:
                         break
                     is_speech = vad.is_speech(frame.tobytes(), SAMPLE_RATE)
-                    ring.append(frame.tobytes())
+                    ring.append(frame)
                     if is_speech:
                         voiced = True
                         last_voice_ts = time.time()
                     if voiced and (time.time() - last_partial_ts) * 1000 >= PARTIAL_EVERY_MS:
                         last_partial_ts = time.time()
                         need = int((SAMPLE_RATE * CHUNK_MS) / 1000)
-                        if not ring:
-                            continue
                         flat = np.frombuffer(b"".join(ring), dtype=np.int16)
                         audio_tail = flat[-need * 2 :] if flat.size > need * 2 else flat
                         await transcribe_block(audio_tail, final=False)
                     if voiced and (time.time() - last_voice_ts) * 1000 >= SIL_MS_END:
                         voiced = False
-                        if not ring:
-                            continue
                         flat = np.frombuffer(b"".join(ring), dtype=np.int16)
                         await transcribe_block(flat, final=True)
                         ring.clear()

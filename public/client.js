@@ -19,8 +19,9 @@ async function start() {
     src.connect(workletNode);
     workletNode.connect(silentGain).connect(audioCtx.destination);
 
-    // WebSocket binaire
-    ws = new WebSocket(`ws://${location.host}/ws`);
+    // WebSocket binaire — adapte le protocole si la page est servie en HTTPS
+    const wsProtocol = location.protocol === 'https:' ? 'wss' : 'ws';
+    ws = new WebSocket(`${wsProtocol}://${location.host}/ws`);
     ws.binaryType = 'arraybuffer';
     ws.onopen = () => { socketOpen = true; log("WS connecté"); };
     ws.onclose = () => { socketOpen = false; log("WS fermé"); };

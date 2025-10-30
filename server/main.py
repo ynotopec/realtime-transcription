@@ -7,6 +7,7 @@ from collections import deque
 import numpy as np
 import webrtcvad
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from faster_whisper import WhisperModel
 
@@ -21,7 +22,12 @@ OVERLAP_SEC = 0.4
 PARTIAL_EVERY_MS = 400
 
 app = FastAPI()
-app.mount("/", StaticFiles(directory="public", html=True), name="public")
+app.mount("/static", StaticFiles(directory="public"), name="static")
+
+
+@app.get("/")
+async def serve_index() -> FileResponse:
+    return FileResponse("public/index.html")
 
 model = WhisperModel(MODEL_NAME, device=DEVICE, compute_type=COMPUTE)
 

@@ -8,7 +8,7 @@ async function start() {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, noiseSuppression: true, echoCancellation: true, autoGainControl: true } });
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    await audioCtx.audioWorklet.addModule('./worklet.js');
+    await audioCtx.audioWorklet.addModule('/static/worklet.js');
     await audioCtx.resume();
 
     const src = audioCtx.createMediaStreamSource(stream);

@@ -5,33 +5,42 @@ let ws, audioCtx, workletNode, socketOpen = false;
 let resamplerNode;
 
 async function start() {
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, noiseSuppression: true, echoCancellation: true, autoGainControl: true } });
-  audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 }); // force 16 kHz
-  await audioCtx.audioWorklet.addModule('./worklet.js');
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, noiseSuppression: true, echoCancellation: true, autoGainControl: true } });
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 }); // force 16 kHz
+    await audioCtx.audioWorklet.addModule('./worklet.js');
+    await audioCtx.resume();
 
-  const src = audioCtx.createMediaStreamSource(stream);
-  workletNode = new AudioWorkletNode(audioCtx, 'pcm16-worklet');
-  src.connect(workletNode);
+    const src = audioCtx.createMediaStreamSource(stream);
+    workletNode = new AudioWorkletNode(audioCtx, 'pcm16-worklet');
+    const silentGain = audioCtx.createGain();
+    silentGain.gain.value = 0;
+    src.connect(workletNode);
+    workletNode.connect(silentGain).connect(audioCtx.destination);
 
-  // WebSocket binaire
-  ws = new WebSocket(`ws://${location.host}/ws`);
-  ws.binaryType = 'arraybuffer';
-  ws.onopen = () => { socketOpen = true; log("WS connecté"); };
-  ws.onclose = () => { socketOpen = false; log("WS fermé"); };
-  ws.onmessage = (ev) => {
-    const msg = JSON.parse(ev.data);
-    if (msg.type === 'partial') log(`… ${msg.text}`);
-    if (msg.type === 'final')   log(`✅ ${msg.text}`);
-  };
+    // WebSocket binaire
+    ws = new WebSocket(`ws://${location.host}/ws`);
+    ws.binaryType = 'arraybuffer';
+    ws.onopen = () => { socketOpen = true; log("WS connecté"); };
+    ws.onclose = () => { socketOpen = false; log("WS fermé"); };
+    ws.onmessage = (ev) => {
+      const msg = JSON.parse(ev.data);
+      if (msg.type === 'partial') log(`… ${msg.text}`);
+      if (msg.type === 'final')   log(`✅ ${msg.text}`);
+    };
 
-  workletNode.port.onmessage = (e) => {
-    if (!socketOpen) return;
-    const pcm = e.data; // Int16Array
-    ws.send(pcm.buffer);
-  };
+    workletNode.port.onmessage = (e) => {
+      if (!socketOpen) return;
+      const pcm = e.data; // Int16Array
+      ws.send(pcm.buffer.slice(0));
+    };
 
-  document.getElementById('start').disabled = true;
-  document.getElementById('stop').disabled = false;
+    document.getElementById('start').disabled = true;
+    document.getElementById('stop').disabled = false;
+  } catch (err) {
+    log(`❌ Erreur: ${err?.message || err}`);
+    stop();
+  }
 }
 
 function stop() {

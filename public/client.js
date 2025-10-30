@@ -1,6 +1,31 @@
 // public/client.js — ouvre le micro, resample -> 16 kHz, envoie par WS et affiche les résultats
 const TARGET_SAMPLE_RATE = 16000;
-const log = (m) => (document.getElementById('log').textContent += m + "\n");
+const logEl = document.getElementById('log');
+const finalEl = document.getElementById('final');
+const partialEl = document.getElementById('partial');
+
+const log = (message) => {
+  const timestamp = new Date().toLocaleTimeString();
+  logEl.textContent += `[${timestamp}] ${message}\n`;
+  logEl.scrollTop = logEl.scrollHeight;
+};
+
+const appendFinal = (text) => {
+  if (!text) return;
+  const paragraph = document.createElement('p');
+  paragraph.textContent = text;
+  finalEl.appendChild(paragraph);
+  finalEl.scrollTop = finalEl.scrollHeight;
+};
+
+const showPartial = (text) => {
+  partialEl.textContent = text || '';
+};
+
+const resetTranscript = () => {
+  finalEl.replaceChildren();
+  showPartial('');
+};
 
 let ws, audioCtx, workletNode, socketOpen = false;
 
@@ -26,8 +51,15 @@ async function start() {
     ws.onclose = () => { socketOpen = false; log("WS fermé"); };
     ws.onmessage = (ev) => {
       const msg = JSON.parse(ev.data);
-      if (msg.type === 'partial') log(`… ${msg.text}`);
-      if (msg.type === 'final')   log(`✅ ${msg.text}`);
+      if (msg.type === 'partial') {
+        showPartial(msg.text);
+        log(`… ${msg.text}`);
+      }
+      if (msg.type === 'final') {
+        appendFinal(msg.text);
+        showPartial('');
+        log(`✅ ${msg.text}`);
+      }
     };
 
     workletNode.port.onmessage = (e) => {
@@ -38,6 +70,7 @@ async function start() {
 
     document.getElementById('start').disabled = true;
     document.getElementById('stop').disabled = false;
+    resetTranscript();
   } catch (err) {
     log(`❌ Erreur: ${err?.message || err}`);
     stop();
@@ -49,6 +82,7 @@ function stop() {
   try { audioCtx && audioCtx.close(); } catch {}
   document.getElementById('start').disabled = false;
   document.getElementById('stop').disabled = true;
+  showPartial('');
 }
 
 document.getElementById('start').onclick = start;

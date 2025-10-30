@@ -1,18 +1,19 @@
 // public/client.js — ouvre le micro, resample -> 16 kHz, envoie par WS et affiche les résultats
+const TARGET_SAMPLE_RATE = 16000;
 const log = (m) => (document.getElementById('log').textContent += m + "\n");
 
 let ws, audioCtx, workletNode, socketOpen = false;
-let resamplerNode;
 
 async function start() {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, noiseSuppression: true, echoCancellation: true, autoGainControl: true } });
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 }); // force 16 kHz
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     await audioCtx.audioWorklet.addModule('./worklet.js');
     await audioCtx.resume();
 
     const src = audioCtx.createMediaStreamSource(stream);
     workletNode = new AudioWorkletNode(audioCtx, 'pcm16-worklet');
+    workletNode.port.postMessage({ type: 'config', targetSampleRate: TARGET_SAMPLE_RATE });
     const silentGain = audioCtx.createGain();
     silentGain.gain.value = 0;
     src.connect(workletNode);

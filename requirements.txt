@@ -2,7 +2,8 @@ fastapi==0.115.0
 uvicorn[standard]==0.30.0
 websockets==12.0
 numpy==2.1.1
-#webrtcvad==2.0.10
+webrtcvad==2.0.10
 faster-whisper==1.0.3
 pydantic==2.9.0
 requests
+pytest==8.3.3

@@ -112,6 +112,10 @@ FW_MODEL=medium.en FW_DEVICE=cuda FW_COMPUTE=float16 \
 - If CUDA/cuDNN libraries are missing, model loading will automatically fall back to
   `FW_DEVICE=cpu` with `FW_COMPUTE=float32`. You can set these values explicitly to avoid
   GPU-related warnings.
+- Ensure a compatible `torch` wheel is installed for your platform (CPU-only or matching
+  CUDA version). For example, with CUDA 12.4 use `pip install --index-url
+  https://download.pytorch.org/whl/cu124 torch==2.4.1` before installing the remaining
+  requirements.
 
 ## Production checklist
 

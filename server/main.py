@@ -56,6 +56,7 @@ async def ws_stream(ws: WebSocket):
     last_voice_ts = time.time()
     last_partial_ts = 0.0
     overlap = np.zeros(int(OVERLAP_SEC * SAMPLE_RATE), dtype=np.int16)
+    pending = b""
 
     async def transcribe_block(audio_i16: np.ndarray, final: bool = False):
         nonlocal overlap
@@ -100,12 +101,24 @@ async def ws_stream(ws: WebSocket):
         while True:
             msg = await ws.receive()
             if "bytes" in msg and msg["bytes"]:
-                pcm = bytes_to_int16(msg["bytes"])
-                log.debug("Received %d samples (bytes=%d)", pcm.size, len(msg["bytes"]))
-                for i in range(0, len(pcm), frame_len):
-                    frame = pcm[i : i + frame_len]
-                    if len(frame) < frame_len:
-                        break
+                combined = pending + msg["bytes"]
+                pcm = bytes_to_int16(combined)
+                log.info(
+                    "Received audio chunk: %d bytes (%d samples), pending=%d bytes",
+                    len(msg["bytes"]),
+                    pcm.size,
+                    len(pending),
+                )
+                log.debug(
+                    "Received %d samples (bytes=%d, pending=%d)",
+                    pcm.size,
+                    len(msg["bytes"]),
+                    len(pending),
+                )
+                consumed = 0
+                while consumed + frame_len <= len(pcm):
+                    frame = pcm[consumed : consumed + frame_len]
+                    consumed += frame_len
                     is_speech = vad.is_speech(frame.tobytes(), SAMPLE_RATE)
                     ring.append(frame)
                     if is_speech:
@@ -124,6 +137,7 @@ async def ws_stream(ws: WebSocket):
                         log.info("Silence detected, sending final (%d samples)", flat.size)
                         await transcribe_block(flat, final=True)
                         ring.clear()
+                pending = pcm[consumed:].tobytes()
             else:
                 log.warning("Non-bytes message received from client: %s", msg.get("type"))
     except WebSocketDisconnect:

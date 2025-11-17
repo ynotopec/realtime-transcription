@@ -14,8 +14,8 @@ from fastapi.staticfiles import StaticFiles
 from faster_whisper import WhisperModel
 
 MODEL_NAME = os.getenv("FW_MODEL", "large-v3")
-DEVICE = os.getenv("FW_DEVICE", "auto")
-COMPUTE = os.getenv("FW_COMPUTE", "float16")
+DEVICE_ENV = os.getenv("FW_DEVICE", "auto")
+COMPUTE_ENV = os.getenv("FW_COMPUTE", "float16")
 SAMPLE_RATE = 16000
 FRAME_MS = 20
 CHUNK_MS = 200
@@ -31,7 +31,57 @@ app.mount("/static", StaticFiles(directory="public"), name="static")
 async def serve_index() -> FileResponse:
     return FileResponse("public/index.html")
 
-model = WhisperModel(MODEL_NAME, device=DEVICE, compute_type=COMPUTE)
+def resolve_inference_target(log: logging.Logger) -> tuple[str, str]:
+    device = DEVICE_ENV
+    compute = COMPUTE_ENV
+
+    if device == "auto":
+        cuda_ready = False
+        try:
+            import torch
+
+            cuda_ready = bool(
+                torch.cuda.is_available() and torch.backends.cudnn.is_available()
+            )
+        except Exception as exc:  # pragma: no cover - best-effort probe
+            log.info("CUDA probe failed, selecting CPU target: %s", exc)
+
+        if not cuda_ready:
+            log.info("CUDA/cuDNN unavailable; selecting CPU float32")
+            return "cpu", "float32"
+
+        return "cuda", compute
+
+    if device == "cpu":
+        return device, "float32"
+
+    return device, compute
+
+
+def load_model() -> WhisperModel:
+    log = logging.getLogger("asr.model")
+    device, compute = resolve_inference_target(log)
+    log.info(
+        "Loading WhisperModel '%s' (device=%s, compute_type=%s)",
+        MODEL_NAME,
+        device,
+        compute,
+    )
+    try:
+        return WhisperModel(MODEL_NAME, device=device, compute_type=compute)
+    except Exception as exc:  # pragma: no cover - defensive fallback
+        if device == "cpu":
+            raise
+        log.warning(
+            "Failed to load WhisperModel on %s (%s): %s. Falling back to CPU float32.",
+            device,
+            compute,
+            exc,
+        )
+        return WhisperModel(MODEL_NAME, device="cpu", compute_type="float32")
+
+
+model = load_model()
 
 def bytes_to_int16(b: bytes) -> np.ndarray:
     return np.frombuffer(b, dtype=np.int16)

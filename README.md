@@ -109,6 +109,9 @@ FW_MODEL=medium.en FW_DEVICE=cuda FW_COMPUTE=float16 \
 - On CPU-only hosts, consider a smaller model for better latency.
 - Ensure the browser tab has permission to use the microphone; otherwise the **Start** button
   appears to do nothing.
+- If CUDA/cuDNN libraries are missing, model loading will automatically fall back to
+  `FW_DEVICE=cpu` with `FW_COMPUTE=float32`. You can set these values explicitly to avoid
+  GPU-related warnings.
 
 ## Production checklist
 

@@ -37,6 +37,13 @@ FastAPI (async) + WebRTC VAD + sliding buffer
    └── faster-whisper (CTranslate2) → JSON messages (partial / final)
 ```
 
+**Audio format path (16 kHz mono)**
+
+- The browser requests a mono microphone track and explicitly targets 16 kHz; the AudioContext
+  reports its native rate, and the worklet resamples to 16 kHz PCM16 before streaming.
+- The backend closes the WebSocket if it cannot validate the 20 ms frame length for 16 kHz audio
+  and logs the expected format (`16-bit PCM mono @ 16000 Hz`).
+
 ## Quick start
 
 ### 1. Install dependencies

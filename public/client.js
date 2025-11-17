@@ -39,12 +39,23 @@ let chunksSent = 0;
 
 async function start() {
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, noiseSuppression: true, echoCancellation: true, autoGainControl: true } });
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        channelCount: 1,
+        sampleRate: TARGET_SAMPLE_RATE,
+        noiseSuppression: true,
+        echoCancellation: true,
+        autoGainControl: true,
+      },
+    });
     log('Micro autorisé, création AudioContext…');
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     await audioCtx.audioWorklet.addModule('/static/worklet.js');
     await audioCtx.resume();
-    log(`AudioContext ready (sampleRate=${audioCtx.sampleRate}Hz)`);
+    const ratio = audioCtx.sampleRate / TARGET_SAMPLE_RATE;
+    log(
+      `AudioContext ready (sampleRate=${audioCtx.sampleRate}Hz → target ${TARGET_SAMPLE_RATE}Hz, ratio=${ratio.toFixed(3)})`,
+    );
 
     const src = audioCtx.createMediaStreamSource(stream);
     workletNode = new AudioWorkletNode(audioCtx, 'pcm16-worklet');

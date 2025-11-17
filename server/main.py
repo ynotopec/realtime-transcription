@@ -95,7 +95,16 @@ async def ws_stream(ws: WebSocket):
             overlap = np.pad(audio_i16, (keep - audio_i16.size, 0), mode="constant")
 
     frame_len = int(SAMPLE_RATE * FRAME_MS / 1000)
-    log.info("Frame length=%d samples, waiting for audio frames", frame_len)
+    if not webrtcvad.valid_rate_and_frame_length(SAMPLE_RATE, frame_len):
+        log.error("Invalid VAD frame length=%d for sample_rate=%d", frame_len, SAMPLE_RATE)
+        await ws.close(code=1003, reason="Unsupported audio format")
+        return
+    log.info(
+        "Expecting 16-bit PCM mono @ %d Hz (frame=%d samples, %d ms)",
+        SAMPLE_RATE,
+        frame_len,
+        FRAME_MS,
+    )
 
     try:
         while True:

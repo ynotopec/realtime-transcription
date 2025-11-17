@@ -6,8 +6,10 @@ const partialEl = document.getElementById('partial');
 
 const log = (message) => {
   const timestamp = new Date().toLocaleTimeString();
-  logEl.textContent += `[${timestamp}] ${message}\n`;
+  const line = `[${timestamp}] ${message}\n`;
+  logEl.textContent += line;
   logEl.scrollTop = logEl.scrollHeight;
+  console.debug(line.trim());
 };
 
 const appendFinal = (text) => {
@@ -33,17 +35,21 @@ const resetTranscript = () => {
 };
 
 let ws, audioCtx, workletNode, socketOpen = false;
+let chunksSent = 0;
 
 async function start() {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, noiseSuppression: true, echoCancellation: true, autoGainControl: true } });
+    log('Micro autorisé, création AudioContext…');
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     await audioCtx.audioWorklet.addModule('/static/worklet.js');
     await audioCtx.resume();
+    log(`AudioContext ready (sampleRate=${audioCtx.sampleRate}Hz)`);
 
     const src = audioCtx.createMediaStreamSource(stream);
     workletNode = new AudioWorkletNode(audioCtx, 'pcm16-worklet');
     workletNode.port.postMessage({ type: 'config', targetSampleRate: TARGET_SAMPLE_RATE });
+    log('Worklet chargé et configuré à 16 kHz');
     const silentGain = audioCtx.createGain();
     silentGain.gain.value = 0;
     src.connect(workletNode);
@@ -53,7 +59,8 @@ async function start() {
     ws = new WebSocket(`ws://${location.host}/ws`);
     ws.binaryType = 'arraybuffer';
     ws.onopen = () => { socketOpen = true; log("WS connecté"); };
-    ws.onclose = () => { socketOpen = false; log("WS fermé"); };
+    ws.onerror = (ev) => log(`⚠️ WS error: ${ev?.message || 'see console'}`);
+    ws.onclose = (ev) => { socketOpen = false; log(`WS fermé (code=${ev.code}, reason=${ev.reason})`); };
     ws.onmessage = (ev) => {
       const msg = JSON.parse(ev.data);
       if (msg.type === 'partial') {
@@ -65,11 +72,18 @@ async function start() {
         showPartial('');
         log(`✅ ${msg.text}`);
       }
+      if (!msg.type) {
+        log(`⚠️ Message inconnu depuis WS: ${ev.data}`);
+      }
     };
 
     workletNode.port.onmessage = (e) => {
       if (!socketOpen) return;
       const pcm = e.data; // Int16Array
+      chunksSent += 1;
+      if (chunksSent % 50 === 0) {
+        log(`→ ${chunksSent} chunks envoyés (${pcm.length} échantillons chacun)`);
+      }
       ws.send(pcm.buffer.slice(0));
     };
 

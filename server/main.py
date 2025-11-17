@@ -31,29 +31,7 @@ app.mount("/static", StaticFiles(directory="public"), name="static")
 async def serve_index() -> FileResponse:
     return FileResponse("public/index.html")
 
-def load_model() -> WhisperModel:
-    log = logging.getLogger("asr.model")
-    log.info(
-        "Loading WhisperModel '%s' (device=%s, compute_type=%s)",
-        MODEL_NAME,
-        DEVICE,
-        COMPUTE,
-    )
-    try:
-        return WhisperModel(MODEL_NAME, device=DEVICE, compute_type=COMPUTE)
-    except Exception as exc:  # pragma: no cover - defensive fallback
-        if DEVICE == "cpu":
-            raise
-        log.warning(
-            "Failed to load WhisperModel on %s (%s): %s. Falling back to CPU float32.",
-            DEVICE,
-            COMPUTE,
-            exc,
-        )
-        return WhisperModel(MODEL_NAME, device="cpu", compute_type="float32")
-
-
-model = load_model()
+model = WhisperModel(MODEL_NAME, device=DEVICE, compute_type=COMPUTE)
 
 def bytes_to_int16(b: bytes) -> np.ndarray:
     return np.frombuffer(b, dtype=np.int16)

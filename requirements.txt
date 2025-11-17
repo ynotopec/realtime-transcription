@@ -4,7 +4,6 @@ websockets==12.0
 numpy==2.1.1
 webrtcvad==2.0.10
 faster-whisper==1.0.3
-torch==2.4.1
 pydantic==2.9.0
 requests
 pytest==8.3.3

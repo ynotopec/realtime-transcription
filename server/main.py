@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import os
 import time
 from collections import deque
@@ -35,9 +36,20 @@ def bytes_to_int16(b: bytes) -> np.ndarray:
     return np.frombuffer(b, dtype=np.int16)
 
 
+@app.on_event("startup")
+async def configure_logging() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+    )
+
+
 @app.websocket("/ws")
 async def ws_stream(ws: WebSocket):
     await ws.accept()
+    log = logging.getLogger("asr.stream")
+    log.info("WebSocket accepted from %s", ws.client)
+
     vad = webrtcvad.Vad(2)
     ring = deque(maxlen=int((10_000 / FRAME_MS)))
     voiced = False
@@ -50,6 +62,13 @@ async def ws_stream(ws: WebSocket):
         if audio_i16.size == 0:
             return
         buf = np.concatenate([overlap, audio_i16]).astype(np.float32) / 32768.0
+        started = time.perf_counter()
+        log.info(
+            "Transcribe %sms (%s samples, final=%s)",
+            round(len(buf) / SAMPLE_RATE * 1000, 1),
+            buf.size,
+            final,
+        )
         segments, _ = model.transcribe(
             buf,
             language=None,
@@ -62,8 +81,12 @@ async def ws_stream(ws: WebSocket):
             initial_prompt=None,
         )
         text = "".join([s.text for s in segments]).strip()
+        duration_ms = (time.perf_counter() - started) * 1000
+        log.info("Transcribe done in %.1f ms, text='%s'", duration_ms, text)
         if text:
-            await ws.send_text(json.dumps({"type": "final" if final else "partial", "text": text}))
+            payload = {"type": "final" if final else "partial", "text": text}
+            await ws.send_text(json.dumps(payload))
+            log.info("Sent %s text to client (%d chars)", payload["type"], len(text))
         keep = int(OVERLAP_SEC * SAMPLE_RATE)
         if audio_i16.size >= keep:
             overlap = audio_i16[-keep:]
@@ -71,12 +94,14 @@ async def ws_stream(ws: WebSocket):
             overlap = np.pad(audio_i16, (keep - audio_i16.size, 0), mode="constant")
 
     frame_len = int(SAMPLE_RATE * FRAME_MS / 1000)
+    log.info("Frame length=%d samples, waiting for audio frames", frame_len)
 
     try:
         while True:
             msg = await ws.receive()
-            if "bytes" in msg:
+            if "bytes" in msg and msg["bytes"]:
                 pcm = bytes_to_int16(msg["bytes"])
+                log.debug("Received %d samples (bytes=%d)", pcm.size, len(msg["bytes"]))
                 for i in range(0, len(pcm), frame_len):
                     frame = pcm[i : i + frame_len]
                     if len(frame) < frame_len:
@@ -91,15 +116,18 @@ async def ws_stream(ws: WebSocket):
                         need = int((SAMPLE_RATE * CHUNK_MS) / 1000)
                         flat = np.frombuffer(b"".join(ring), dtype=np.int16)
                         audio_tail = flat[-need * 2 :] if flat.size > need * 2 else flat
+                        log.info("Trigger partial (%d samples)", audio_tail.size)
                         await transcribe_block(audio_tail, final=False)
                     if voiced and (time.time() - last_voice_ts) * 1000 >= SIL_MS_END:
                         voiced = False
                         flat = np.frombuffer(b"".join(ring), dtype=np.int16)
+                        log.info("Silence detected, sending final (%d samples)", flat.size)
                         await transcribe_block(flat, final=True)
                         ring.clear()
             else:
-                pass
+                log.warning("Non-bytes message received from client: %s", msg.get("type"))
     except WebSocketDisconnect:
+        log.info("WebSocket disconnected, flushing buffer")
         flat = np.frombuffer(b"".join(ring), dtype=np.int16)
         if flat.size > 0:
             await transcribe_block(flat, final=True)

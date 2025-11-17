@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -57,13 +58,31 @@ async def ws_stream(ws: WebSocket):
     last_partial_ts = 0.0
     overlap = np.zeros(int(OVERLAP_SEC * SAMPLE_RATE), dtype=np.int16)
     pending = b""
+    last_backend_ts = time.time()
+    last_vad_ts = time.time()
+    last_transcription_ts = time.time()
+
+    async def monitor_inactivity():
+        while True:
+            await asyncio.sleep(3)
+            now = time.time()
+            if now - last_backend_ts >= 3:
+                log.warning("No backend input for %.1f seconds", now - last_backend_ts)
+            if now - last_vad_ts >= 3:
+                log.warning("No VAD input for %.1f seconds", now - last_vad_ts)
+            if now - last_transcription_ts >= 3:
+                log.warning(
+                    "No transcription input for %.1f seconds", now - last_transcription_ts
+                )
 
     async def transcribe_block(audio_i16: np.ndarray, final: bool = False):
         nonlocal overlap
+        nonlocal last_transcription_ts
         if audio_i16.size == 0:
             return
         buf = np.concatenate([overlap, audio_i16]).astype(np.float32) / 32768.0
         started = time.perf_counter()
+        last_transcription_ts = time.time()
         log.info(
             "Transcribe %sms (%s samples, final=%s)",
             round(len(buf) / SAMPLE_RATE * 1000, 1),
@@ -106,18 +125,15 @@ async def ws_stream(ws: WebSocket):
         FRAME_MS,
     )
 
+    monitor_task = asyncio.create_task(monitor_inactivity())
+
     try:
         while True:
             msg = await ws.receive()
             if "bytes" in msg and msg["bytes"]:
+                last_backend_ts = time.time()
                 combined = pending + msg["bytes"]
                 pcm = bytes_to_int16(combined)
-                log.info(
-                    "Received audio chunk: %d bytes (%d samples), pending=%d bytes",
-                    len(msg["bytes"]),
-                    pcm.size,
-                    len(pending),
-                )
                 log.debug(
                     "Received %d samples (bytes=%d, pending=%d)",
                     pcm.size,
@@ -130,6 +146,7 @@ async def ws_stream(ws: WebSocket):
                     consumed += frame_len
                     is_speech = vad.is_speech(frame.tobytes(), SAMPLE_RATE)
                     ring.append(frame)
+                    last_vad_ts = time.time()
                     if is_speech:
                         voiced = True
                         last_voice_ts = time.time()
@@ -155,3 +172,7 @@ async def ws_stream(ws: WebSocket):
         if flat.size > 0:
             await transcribe_block(flat, final=True)
         return
+    finally:
+        monitor_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await monitor_task

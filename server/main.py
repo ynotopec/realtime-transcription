@@ -72,11 +72,6 @@ async def ws_stream(ws: WebSocket):
 
     frame_len = int(SAMPLE_RATE * FRAME_MS / 1000)
 
-    def flatten_ring() -> np.ndarray:
-        if not ring:
-            return np.array([], dtype=np.int16)
-        return np.concatenate(list(ring))
-
     try:
         while True:
             msg = await ws.receive()
@@ -94,18 +89,18 @@ async def ws_stream(ws: WebSocket):
                     if voiced and (time.time() - last_partial_ts) * 1000 >= PARTIAL_EVERY_MS:
                         last_partial_ts = time.time()
                         need = int((SAMPLE_RATE * CHUNK_MS) / 1000)
-                        flat = flatten_ring()
+                        flat = np.frombuffer(b"".join(ring), dtype=np.int16)
                         audio_tail = flat[-need * 2 :] if flat.size > need * 2 else flat
                         await transcribe_block(audio_tail, final=False)
                     if voiced and (time.time() - last_voice_ts) * 1000 >= SIL_MS_END:
                         voiced = False
-                        flat = flatten_ring()
+                        flat = np.frombuffer(b"".join(ring), dtype=np.int16)
                         await transcribe_block(flat, final=True)
                         ring.clear()
             else:
                 pass
     except WebSocketDisconnect:
-        flat = flatten_ring()
+        flat = np.frombuffer(b"".join(ring), dtype=np.int16)
         if flat.size > 0:
             await transcribe_block(flat, final=True)
         return

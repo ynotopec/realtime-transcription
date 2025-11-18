@@ -8,3 +8,4 @@ torch==2.4.1
 pydantic==2.9.0
 requests
 pytest==8.3.3
+python-multipart

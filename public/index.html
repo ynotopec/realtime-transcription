@@ -154,6 +154,37 @@
       white-space: pre-wrap;
     }
 
+    .file-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      align-items: center;
+    }
+
+    .file-actions input[type="file"] {
+      color: #e2e8f0;
+    }
+
+    .status {
+      font-size: 0.95rem;
+      color: rgba(226, 232, 240, 0.85);
+      min-height: 1.5rem;
+    }
+
+    .status.error {
+      color: #f87171;
+    }
+
+    #fileResult {
+      background: rgba(59, 130, 246, 0.1);
+      border: 1px solid rgba(59, 130, 246, 0.25);
+      border-radius: 0.85rem;
+      padding: 1rem;
+      white-space: pre-wrap;
+      font-size: 1rem;
+      line-height: 1.5;
+    }
+
     @media (max-width: 600px) {
       body {
         padding: 1.5rem 1rem;
@@ -187,6 +218,16 @@
     <section class="panel">
       <h2>Diagnostics</h2>
       <pre id="log"></pre>
+    </section>
+    <section class="panel" aria-labelledby="file-test-title">
+      <h2 id="file-test-title">Tester un fichier WAV</h2>
+      <p>Chargez un enregistrement mono 16 kHz (WAV PCM16) pour vérifier la chaîne de bout en bout.</p>
+      <div class="file-actions">
+        <input id="wavInput" type="file" accept="audio/wav,audio/x-wav" />
+        <button id="sendFile">Transcrire le fichier</button>
+      </div>
+      <div id="fileStatus" class="status" aria-live="polite"></div>
+      <div id="fileResult" aria-live="polite"></div>
     </section>
   </main>
   <script type="module" src="/static/client.js"></script>

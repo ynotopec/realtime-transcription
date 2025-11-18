@@ -4,11 +4,13 @@ import json
 import logging
 import os
 import time
+import wave
 from collections import deque
+from io import BytesIO
 
 import numpy as np
 import webrtcvad
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from faster_whisper import WhisperModel
@@ -104,6 +106,28 @@ def load_model() -> WhisperModel:
 
 model = load_model()
 
+
+def transcribe_audio(float_pcm: np.ndarray, log: logging.Logger) -> tuple[str, float]:
+    if float_pcm.size == 0:
+        return "", 0.0
+    started = time.perf_counter()
+    segments, _ = model.transcribe(
+        float_pcm,
+        language=None,
+        beam_size=1,
+        best_of=1,
+        vad_filter=False,
+        temperature=[0.0, 0.2, 0.4],
+        condition_on_previous_text=True,
+        no_speech_threshold=0.3,
+        initial_prompt=None,
+    )
+    text = "".join([s.text for s in segments]).strip()
+    duration_ms = (time.perf_counter() - started) * 1000
+    log.info("Transcribe done in %.1f ms, text='%s'", duration_ms, text)
+    return text, duration_ms
+
+
 def bytes_to_int16(b: bytes) -> np.ndarray:
     return np.frombuffer(b, dtype=np.int16)
 
@@ -154,7 +178,6 @@ async def ws_stream(ws: WebSocket):
         if audio_i16.size == 0:
             return
         buf = np.concatenate([overlap, audio_i16]).astype(np.float32) / 32768.0
-        started = time.perf_counter()
         last_transcription_ts = time.time()
         log.info(
             "Transcribe %sms (%s samples, final=%s)",
@@ -162,20 +185,7 @@ async def ws_stream(ws: WebSocket):
             buf.size,
             final,
         )
-        segments, _ = model.transcribe(
-            buf,
-            language=None,
-            beam_size=1,
-            best_of=1,
-            vad_filter=False,
-            temperature=[0.0, 0.2, 0.4],
-            condition_on_previous_text=True,
-            no_speech_threshold=0.3,
-            initial_prompt=None,
-        )
-        text = "".join([s.text for s in segments]).strip()
-        duration_ms = (time.perf_counter() - started) * 1000
-        log.info("Transcribe done in %.1f ms, text='%s'", duration_ms, text)
+        text, _ = transcribe_audio(buf, log)
         if text:
             payload = {"type": "final" if final else "partial", "text": text}
             await ws.send_text(json.dumps(payload))
@@ -276,3 +286,37 @@ async def ws_stream(ws: WebSocket):
         monitor_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await monitor_task
+
+
+@app.post("/transcribe-file")
+async def transcribe_file(file: UploadFile = File(...)) -> dict[str, object]:
+    log = logging.getLogger("asr.upload")
+    if file.content_type not in {"audio/wav", "audio/x-wav", "audio/wave", "audio/vnd.wave"}:
+        raise HTTPException(status_code=400, detail="Le fichier doit être un WAV (PCM16)")
+
+    data = await file.read()
+    try:
+        with wave.open(BytesIO(data), "rb") as wav:
+            if wav.getsampwidth() != 2:
+                raise HTTPException(status_code=400, detail="Format attendu: PCM 16 bits")
+            if wav.getnchannels() != 1:
+                raise HTTPException(status_code=400, detail="L'audio doit être mono")
+            if wav.getframerate() != SAMPLE_RATE:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Fréquence attendue: {SAMPLE_RATE} Hz (reçu {wav.getframerate()} Hz)",
+                )
+            audio_bytes = wav.readframes(wav.getnframes())
+    except HTTPException:
+        raise
+    except Exception as exc:  # pragma: no cover - dépend du fichier fourni
+        raise HTTPException(status_code=400, detail=f"Fichier WAV invalide: {exc}") from exc
+
+    audio_i16 = np.frombuffer(audio_bytes, dtype=np.int16)
+    float_pcm = audio_i16.astype(np.float32) / 32768.0
+    text, duration_ms = transcribe_audio(float_pcm, log)
+    return {
+        "text": text,
+        "frames": int(audio_i16.size),
+        "duration_ms": round(duration_ms, 1),
+    }

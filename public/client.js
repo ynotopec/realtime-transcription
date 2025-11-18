@@ -37,6 +37,18 @@ const resetTranscript = () => {
 let ws, audioCtx, workletNode, socketOpen = false;
 let chunksSent = 0;
 
+// File upload elements
+const wavInput = document.getElementById('wavInput');
+const sendFileBtn = document.getElementById('sendFile');
+const fileStatusEl = document.getElementById('fileStatus');
+const fileResultEl = document.getElementById('fileResult');
+
+const setFileStatus = (message, isError = false) => {
+  if (!fileStatusEl) return;
+  fileStatusEl.textContent = message || '';
+  fileStatusEl.classList.toggle('error', Boolean(isError));
+};
+
 async function start() {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
@@ -117,3 +129,52 @@ function stop() {
 
 document.getElementById('start').onclick = start;
 document.getElementById('stop').onclick = stop;
+
+const renderFileResult = (payload) => {
+  if (!fileResultEl) return;
+  if (!payload?.text) {
+    fileResultEl.textContent = '(aucun texte détecté)';
+    return;
+  }
+  const durationSeconds = payload.frames ? (payload.frames / TARGET_SAMPLE_RATE).toFixed(2) : '—';
+  const meta = `Durée lue: ${durationSeconds}s • Transcription en ${payload.duration_ms ?? '?'} ms`;
+  fileResultEl.textContent = `${payload.text}\n\n${meta}`;
+};
+
+const transcribeFile = async () => {
+  if (!wavInput?.files?.length) {
+    setFileStatus('Sélectionnez un fichier WAV mono 16 kHz.');
+    return;
+  }
+  const file = wavInput.files[0];
+  setFileStatus('Envoi du fichier…');
+  fileResultEl.textContent = '';
+  if (sendFileBtn) sendFileBtn.disabled = true;
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await fetch('/transcribe-file', { method: 'POST', body: formData });
+    let payload;
+    try {
+      payload = await response.json();
+    } catch (err) {
+      throw new Error('Réponse serveur illisible');
+    }
+    if (!response.ok) {
+      const detail = payload?.detail || `HTTP ${response.status}`;
+      throw new Error(detail);
+    }
+    renderFileResult(payload);
+    setFileStatus('Transcription terminée');
+    log(`🧪 Transcription fichier: ${payload.text || '(aucun texte)'}`);
+  } catch (err) {
+    setFileStatus(`Erreur: ${err.message || err}`, true);
+    if (fileResultEl) fileResultEl.textContent = '';
+  } finally {
+    if (sendFileBtn) sendFileBtn.disabled = false;
+  }
+};
+
+if (sendFileBtn) {
+  sendFileBtn.onclick = transcribeFile;
+}

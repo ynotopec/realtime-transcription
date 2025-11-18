@@ -24,6 +24,8 @@ transcribed on the server in near real time.
   16 kHz PCM16, and streams it over a binary WebSocket.
 - 🧠 **Configurable faster-whisper model** with sensible defaults for CPU, GPU, or auto-selected
   hardware.
+- 🧪 **WAV file testing path**—upload a mono 16 kHz WAV from the UI (or `POST /transcribe-file`) to
+  validate the end-to-end chain without a microphone.
 
 ## Architecture overview
 

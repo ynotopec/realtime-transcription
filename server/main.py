@@ -24,6 +24,7 @@ CHUNK_MS = 200
 SIL_MS_END = 500
 OVERLAP_SEC = 0.4
 PARTIAL_EVERY_MS = 400
+MIN_TRANSCRIBE_MS = 1200
 FORCE_TRANSCRIBE_AFTER_SEC = float(os.getenv("FORCE_TRANSCRIBE_AFTER_SEC", "6"))
 FORCE_TRANSCRIBE_EVERY_SEC = float(os.getenv("FORCE_TRANSCRIBE_EVERY_SEC", "5"))
 
@@ -306,6 +307,7 @@ def transcribe_file_with_vad(audio_i16: np.ndarray, log: logging.Logger) -> dict
     force_transcribe_active = False
     results: list[dict[str, object]] = []
     total_duration_ms = 0.0
+    min_transcribe_samples = int((SAMPLE_RATE * MIN_TRANSCRIBE_MS) / 1000)
 
     def transcribe_block(audio_block: np.ndarray, final: bool = False) -> str:
         nonlocal overlap
@@ -342,6 +344,13 @@ def transcribe_file_with_vad(audio_i16: np.ndarray, log: logging.Logger) -> dict
             need = int((SAMPLE_RATE * CHUNK_MS) / 1000)
             flat = np.frombuffer(b"".join(ring), dtype=np.int16)
             audio_tail = flat[-need * 2 :] if flat.size > need * 2 else flat
+            if audio_tail.size < min_transcribe_samples:
+                log.info(
+                    "Skip partial (%d samples, need at least %d)",
+                    audio_tail.size,
+                    min_transcribe_samples,
+                )
+                continue
             log.info("Trigger partial (%d samples)", audio_tail.size)
             text = transcribe_block(audio_tail, final=False)
             if text:
@@ -374,6 +383,13 @@ def transcribe_file_with_vad(audio_i16: np.ndarray, log: logging.Logger) -> dict
             need = int(SAMPLE_RATE * FORCE_TRANSCRIBE_EVERY_SEC)
             flat = np.frombuffer(b"".join(ring), dtype=np.int16)
             audio_tail = flat[-need:] if flat.size > need else flat
+            if audio_tail.size < min_transcribe_samples:
+                log.info(
+                    "Skip forced transcription (%d samples, need at least %d)",
+                    audio_tail.size,
+                    min_transcribe_samples,
+                )
+                continue
             log.info(
                 "Forced transcription after VAD inactivity (%d samples)",
                 audio_tail.size,

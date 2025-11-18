@@ -408,8 +408,13 @@ async def transcribe_file(
     file: UploadFile = File(...), simulate_vad: bool = False
 ) -> dict[str, object]:
     log = logging.getLogger("asr.upload")
-    if file.content_type not in {"audio/wav", "audio/x-wav", "audio/wave", "audio/vnd.wave"}:
-        raise HTTPException(status_code=400, detail="Le fichier doit être un WAV (PCM16)")
+
+    allowed_types = {"audio/wav", "audio/x-wav", "audio/wave", "audio/vnd.wave"}
+    if file.content_type and file.content_type not in allowed_types:
+        log.warning(
+            "Unexpected content type '%s' for upload; attempting to parse as WAV anyway",
+            file.content_type,
+        )
 
     data = await file.read()
     try:

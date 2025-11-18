@@ -288,8 +288,125 @@ async def ws_stream(ws: WebSocket):
             await monitor_task
 
 
+def transcribe_file_with_vad(audio_i16: np.ndarray, log: logging.Logger) -> dict[str, object]:
+    frame_len = int(SAMPLE_RATE * FRAME_MS / 1000)
+    if not webrtcvad.valid_rate_and_frame_length(SAMPLE_RATE, frame_len):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cadence VAD invalide: {SAMPLE_RATE} Hz / {frame_len} samples",
+        )
+
+    ring = deque(maxlen=int((10_000 / FRAME_MS)))
+    overlap = np.zeros(int(OVERLAP_SEC * SAMPLE_RATE), dtype=np.int16)
+    vad = webrtcvad.Vad(2)
+    voiced = False
+    last_voice_ms = -FORCE_TRANSCRIBE_AFTER_SEC * 1000
+    last_partial_ms = 0.0
+    last_forced_ms = 0.0
+    force_transcribe_active = False
+    results: list[dict[str, object]] = []
+    total_duration_ms = 0.0
+
+    def transcribe_block(audio_block: np.ndarray, final: bool = False) -> str:
+        nonlocal overlap
+        nonlocal total_duration_ms
+        if audio_block.size == 0:
+            return ""
+        buf = np.concatenate([overlap, audio_block]).astype(np.float32) / 32768.0
+        text, duration_ms = transcribe_audio(buf, log)
+        total_duration_ms += duration_ms
+        keep = int(OVERLAP_SEC * SAMPLE_RATE)
+        if audio_block.size >= keep:
+            overlap = audio_block[-keep:]
+        else:
+            overlap = np.pad(audio_block, (keep - audio_block.size, 0), mode="constant")
+        return text
+
+    frame_count = int(np.ceil(audio_i16.size / frame_len))
+    for idx in range(frame_count):
+        start = idx * frame_len
+        end = min(start + frame_len, audio_i16.size)
+        frame = audio_i16[start:end]
+        if frame.size < frame_len:
+            frame = np.pad(frame, (0, frame_len - frame.size), mode="constant")
+        current_ms = idx * FRAME_MS
+        is_speech = vad.is_speech(frame.tobytes(), SAMPLE_RATE)
+        ring.append(frame)
+        if is_speech:
+            voiced = True
+            last_voice_ms = current_ms
+            force_transcribe_active = False
+            last_forced_ms = current_ms
+        if voiced and (current_ms - last_partial_ms) >= PARTIAL_EVERY_MS:
+            last_partial_ms = current_ms
+            need = int((SAMPLE_RATE * CHUNK_MS) / 1000)
+            flat = np.frombuffer(b"".join(ring), dtype=np.int16)
+            audio_tail = flat[-need * 2 :] if flat.size > need * 2 else flat
+            log.info("Trigger partial (%d samples)", audio_tail.size)
+            text = transcribe_block(audio_tail, final=False)
+            if text:
+                results.append({"type": "partial", "text": text, "samples": int(audio_tail.size)})
+        if voiced and (current_ms - last_voice_ms) >= SIL_MS_END:
+            voiced = False
+            flat = np.frombuffer(b"".join(ring), dtype=np.int16)
+            log.info("Silence detected, sending final (%d samples)", flat.size)
+            text = transcribe_block(flat, final=True)
+            if text:
+                results.append({"type": "final", "text": text, "samples": int(flat.size)})
+            ring.clear()
+        if (
+            not voiced
+            and not is_speech
+            and (current_ms - last_voice_ms) >= FORCE_TRANSCRIBE_AFTER_SEC * 1000
+        ):
+            if not force_transcribe_active:
+                log.info(
+                    "VAD inactive for %.1f s; enabling forced transcription",
+                    (current_ms - last_voice_ms) / 1000,
+                )
+                last_forced_ms = 0.0
+                force_transcribe_active = True
+        if force_transcribe_active and (
+            last_forced_ms == 0.0
+            or (current_ms - last_forced_ms) >= FORCE_TRANSCRIBE_EVERY_SEC * 1000
+        ):
+            last_forced_ms = current_ms
+            need = int(SAMPLE_RATE * FORCE_TRANSCRIBE_EVERY_SEC)
+            flat = np.frombuffer(b"".join(ring), dtype=np.int16)
+            audio_tail = flat[-need:] if flat.size > need else flat
+            log.info(
+                "Forced transcription after VAD inactivity (%d samples)",
+                audio_tail.size,
+            )
+            text = transcribe_block(audio_tail, final=False)
+            if text:
+                results.append({"type": "partial", "text": text, "samples": int(audio_tail.size)})
+
+    if ring:
+        flat = np.frombuffer(b"".join(ring), dtype=np.int16)
+        text = transcribe_block(flat, final=True)
+        if text:
+            results.append({"type": "final", "text": text, "samples": int(flat.size)})
+
+    final_text = " ".join([r["text"] for r in results if r["type"] == "final"]).strip()
+    return {
+        "text": final_text,
+        "frames": int(audio_i16.size),
+        "duration_ms": round(total_duration_ms, 1),
+        "events": results,
+        "vad": {
+            "frame_ms": FRAME_MS,
+            "chunk_ms": CHUNK_MS,
+            "silence_ms": SIL_MS_END,
+            "force_after_sec": FORCE_TRANSCRIBE_AFTER_SEC,
+        },
+    }
+
+
 @app.post("/transcribe-file")
-async def transcribe_file(file: UploadFile = File(...)) -> dict[str, object]:
+async def transcribe_file(
+    file: UploadFile = File(...), simulate_vad: bool = False
+) -> dict[str, object]:
     log = logging.getLogger("asr.upload")
     if file.content_type not in {"audio/wav", "audio/x-wav", "audio/wave", "audio/vnd.wave"}:
         raise HTTPException(status_code=400, detail="Le fichier doit être un WAV (PCM16)")
@@ -313,6 +430,10 @@ async def transcribe_file(file: UploadFile = File(...)) -> dict[str, object]:
         raise HTTPException(status_code=400, detail=f"Fichier WAV invalide: {exc}") from exc
 
     audio_i16 = np.frombuffer(audio_bytes, dtype=np.int16)
+    if simulate_vad:
+        log.info("Transcription fichier avec VAD simulée activée")
+        return transcribe_file_with_vad(audio_i16, log)
+
     float_pcm = audio_i16.astype(np.float32) / 32768.0
     text, duration_ms = transcribe_audio(float_pcm, log)
     return {

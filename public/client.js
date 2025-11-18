@@ -12,10 +12,11 @@ const log = (message) => {
   console.debug(line.trim());
 };
 
-const appendFinal = (text) => {
-  if (!text) return;
+const appendFinal = (text, { allowEmpty = false } = {}) => {
+  if (!allowEmpty && !text) return;
+  const content = text || '(aucun texte détecté)';
   const paragraph = document.createElement('p');
-  paragraph.textContent = text;
+  paragraph.textContent = content;
   finalEl.appendChild(paragraph);
   finalEl.scrollTop = finalEl.scrollHeight;
 };
@@ -132,13 +133,17 @@ document.getElementById('stop').onclick = stop;
 
 const renderFileResult = (payload) => {
   if (!fileResultEl) return;
-  if (!payload?.text) {
-    fileResultEl.textContent = '(aucun texte détecté)';
-    return;
-  }
-  const durationSeconds = payload.frames ? (payload.frames / TARGET_SAMPLE_RATE).toFixed(2) : '—';
-  const meta = `Durée lue: ${durationSeconds}s • Transcription en ${payload.duration_ms ?? '?'} ms`;
-  fileResultEl.textContent = `${payload.text}\n\n${meta}`;
+  const transcriptText = payload?.text || '';
+  const displayText = transcriptText || '(aucun texte détecté)';
+  const durationSeconds = payload?.frames
+    ? (payload.frames / TARGET_SAMPLE_RATE).toFixed(2)
+    : '—';
+  const meta = `Durée lue: ${durationSeconds}s • Transcription en ${payload?.duration_ms ?? '?'} ms`;
+  fileResultEl.textContent = `${displayText}\n\n${meta}`;
+
+  resetTranscript();
+  appendFinal(transcriptText, { allowEmpty: true });
+  showPartial('');
 };
 
 const transcribeFile = async () => {

@@ -22,6 +22,8 @@ CHUNK_MS = 200
 SIL_MS_END = 500
 OVERLAP_SEC = 0.4
 PARTIAL_EVERY_MS = 400
+FORCE_TRANSCRIBE_AFTER_SEC = float(os.getenv("FORCE_TRANSCRIBE_AFTER_SEC", "6"))
+FORCE_TRANSCRIBE_EVERY_SEC = float(os.getenv("FORCE_TRANSCRIBE_EVERY_SEC", "5"))
 
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="public"), name="static")
@@ -111,6 +113,8 @@ async def ws_stream(ws: WebSocket):
     last_backend_ts = time.time()
     last_vad_ts = time.time()
     last_transcription_ts = time.time()
+    force_transcribe_active = False
+    last_forced_ts = time.time()
 
     async def monitor_inactivity():
         while True:
@@ -200,6 +204,8 @@ async def ws_stream(ws: WebSocket):
                     if is_speech:
                         voiced = True
                         last_voice_ts = time.time()
+                        force_transcribe_active = False
+                        last_forced_ts = time.time()
                     if voiced and (time.time() - last_partial_ts) * 1000 >= PARTIAL_EVERY_MS:
                         last_partial_ts = time.time()
                         need = int((SAMPLE_RATE * CHUNK_MS) / 1000)
@@ -213,6 +219,31 @@ async def ws_stream(ws: WebSocket):
                         log.info("Silence detected, sending final (%d samples)", flat.size)
                         await transcribe_block(flat, final=True)
                         ring.clear()
+                    if (
+                        not voiced
+                        and not is_speech
+                        and (time.time() - last_voice_ts) >= FORCE_TRANSCRIBE_AFTER_SEC
+                    ):
+                        if not force_transcribe_active:
+                            log.info(
+                                "VAD inactive for %.1f s; enabling forced transcription",
+                                time.time() - last_voice_ts,
+                            )
+                            last_forced_ts = 0.0
+                            force_transcribe_active = True
+                    if force_transcribe_active and (
+                        last_forced_ts == 0.0
+                        or (time.time() - last_forced_ts) >= FORCE_TRANSCRIBE_EVERY_SEC
+                    ):
+                        last_forced_ts = time.time()
+                        need = int(SAMPLE_RATE * FORCE_TRANSCRIBE_EVERY_SEC)
+                        flat = np.frombuffer(b"".join(ring), dtype=np.int16)
+                        audio_tail = flat[-need:] if flat.size > need else flat
+                        log.info(
+                            "Forced transcription after VAD inactivity (%d samples)",
+                            audio_tail.size,
+                        )
+                        await transcribe_block(audio_tail, final=False)
                 pending = pcm[consumed:].tobytes()
             else:
                 log.warning("Non-bytes message received from client: %s", msg.get("type"))

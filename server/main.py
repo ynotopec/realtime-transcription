@@ -47,6 +47,25 @@ def resolve_inference_target(log: logging.Logger) -> tuple[str, str]:
             )
         except Exception as exc:  # pragma: no cover - best-effort probe
             log.info("CUDA probe failed, selecting CPU target: %s", exc)
+        else:
+            try:
+                import ctypes
+
+                for lib in (
+                    "libcudnn_ops.so.9.1.0",
+                    "libcudnn_ops.so.9.1",
+                    "libcudnn_ops.so.9",
+                    "libcudnn_ops.so",
+                ):
+                    with contextlib.suppress(OSError):
+                        ctypes.CDLL(lib)
+                        break
+                else:  # pragma: no cover - relies on system libraries
+                    log.info("cuDNN libraries missing; selecting CPU target")
+                    cuda_ready = False
+            except Exception as exc:  # pragma: no cover - best-effort probe
+                log.info("cuDNN probe failed, selecting CPU target: %s", exc)
+                cuda_ready = False
 
         if not cuda_ready:
             log.info("CUDA/cuDNN unavailable; selecting CPU float32")

@@ -105,6 +105,30 @@
       color: rgba(148, 163, 184, 0.9);
     }
 
+    .panel-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+    }
+
+    .toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-size: 0.8rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: rgba(148, 163, 184, 0.8);
+      cursor: pointer;
+    }
+
+    .toggle input {
+      width: 1.2rem;
+      height: 1.2rem;
+      accent-color: #38bdf8;
+    }
+
     #transcript {
       display: flex;
       flex-direction: column;
@@ -216,7 +240,13 @@
       <div id="partial" aria-live="polite" aria-label="Transcription partielle"></div>
     </section>
     <section class="panel">
-      <h2>Diagnostics</h2>
+      <div class="panel-heading">
+        <h2>Diagnostics</h2>
+        <label class="toggle" for="verboseToggle">
+          <input type="checkbox" id="verboseToggle" />
+          <span>Mode verbeux</span>
+        </label>
+      </div>
       <pre id="log"></pre>
     </section>
     <section class="panel" aria-labelledby="file-test-title">

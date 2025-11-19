@@ -3,31 +3,14 @@ const TARGET_SAMPLE_RATE = 16000;
 const logEl = document.getElementById('log');
 const finalEl = document.getElementById('final');
 const partialEl = document.getElementById('partial');
-const verboseToggle = document.getElementById('verboseToggle');
 
-const MAX_LOG_ENTRIES = 200;
-const logBuffer = [];
-let verboseLogsEnabled = verboseToggle?.checked ?? false;
-
-const log = (message, { verbose = false } = {}) => {
-  if (verbose && !verboseLogsEnabled) return;
+const log = (message) => {
   const timestamp = new Date().toLocaleTimeString();
   const line = `[${timestamp}] ${message}\n`;
-  logBuffer.push(line);
-  if (logBuffer.length > MAX_LOG_ENTRIES) {
-    logBuffer.shift();
-  }
-  logEl.textContent = logBuffer.join('');
+  logEl.textContent += line;
   logEl.scrollTop = logEl.scrollHeight;
   console.debug(line.trim());
 };
-
-if (verboseToggle) {
-  verboseToggle.addEventListener('change', () => {
-    verboseLogsEnabled = verboseToggle.checked;
-    log(`Mode verbeux ${verboseLogsEnabled ? 'activé' : 'désactivé'}`);
-  });
-}
 
 const appendFinal = (text, { allowEmpty = false } = {}) => {
   if (!allowEmpty && !text) return;
@@ -106,7 +89,7 @@ async function start() {
       const msg = JSON.parse(ev.data);
       if (msg.type === 'partial') {
         showPartial(msg.text);
-        log(`… ${msg.text}`, { verbose: true });
+        log(`… ${msg.text}`);
       }
       if (msg.type === 'final') {
         appendFinal(msg.text);
@@ -123,7 +106,7 @@ async function start() {
       const pcm = e.data; // Int16Array
       chunksSent += 1;
       if (chunksSent % 50 === 0) {
-        log(`→ ${chunksSent} chunks envoyés (${pcm.length} échantillons chacun)`, { verbose: true });
+        log(`→ ${chunksSent} chunks envoyés (${pcm.length} échantillons chacun)`);
       }
       ws.send(pcm.buffer.slice(0));
     };

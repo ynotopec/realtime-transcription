@@ -60,8 +60,8 @@ pip install -r requirements.txt
 
 ### 2. (Optional) Pre-download a model
 
-By default the service loads the `large-v3` faster-whisper model. Set `FW_MODEL` to a smaller
-variant such as `medium.en` or `small` if you prefer faster downloads or lower latency.
+By default the service loads the `small` faster-whisper model. Override `FW_MODEL` if you want a
+different size such as `medium.en` or `large-v3`.
 
 ### 3. Run the development server
 
@@ -79,7 +79,7 @@ The backend honors several environment variables:
 
 | Variable     | Default    | Description                                       |
 | ------------ | ---------- | ------------------------------------------------- |
-| `FW_MODEL`   | `large-v3` | Name of the faster-whisper model to load.         |
+| `FW_MODEL`   | `small`    | Name of the faster-whisper model to load.         |
 | `FW_DEVICE`  | `auto`     | Inference device (`cpu`, `cuda`, etc.).           |
 | `FW_COMPUTE` | `float16`  | Precision / compute type passed to faster-whisper.|
 

@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from faster_whisper import WhisperModel
 
-MODEL_NAME = os.getenv("FW_MODEL", "large-v3")
+MODEL_NAME = os.getenv("FW_MODEL", "small")
 DEVICE_ENV = os.getenv("FW_DEVICE", "auto")
 COMPUTE_ENV = os.getenv("FW_COMPUTE", "float16")
 SAMPLE_RATE = 16000
@@ -24,7 +24,11 @@ CHUNK_MS = 200
 SIL_MS_END = 500
 OVERLAP_SEC = 0.4
 PARTIAL_EVERY_MS = 400
-MIN_TRANSCRIBE_MS = 1200
+# Minimum audio duration (in ms) required before running Whisper on a non-final chunk.
+# Set to 200 ms so even the very first partial window (CHUNK_MS) is eligible for
+# transcription instead of being skipped for being too short. Longer chunks are
+# still passed through without any throttling for final transcriptions.
+MIN_TRANSCRIBE_MS = 200
 FORCE_TRANSCRIBE_AFTER_SEC = float(os.getenv("FORCE_TRANSCRIBE_AFTER_SEC", "6"))
 FORCE_TRANSCRIBE_EVERY_SEC = float(os.getenv("FORCE_TRANSCRIBE_EVERY_SEC", "5"))
 

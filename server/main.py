@@ -159,6 +159,7 @@ async def ws_stream(ws: WebSocket):
     last_transcription_ts = time.time()
     force_transcribe_active = False
     last_forced_ts = time.time()
+    min_transcribe_samples = int((SAMPLE_RATE * MIN_TRANSCRIBE_MS) / 1000)
 
     async def monitor_inactivity():
         while True:
@@ -177,6 +178,13 @@ async def ws_stream(ws: WebSocket):
         nonlocal overlap
         nonlocal last_transcription_ts
         if audio_i16.size == 0:
+            return
+        if audio_i16.size < min_transcribe_samples and not final:
+            log.info(
+                "Skip transcription (%d samples, need at least %d)",
+                audio_i16.size,
+                min_transcribe_samples,
+            )
             return
         buf = np.concatenate([overlap, audio_i16]).astype(np.float32) / 32768.0
         last_transcription_ts = time.time()
